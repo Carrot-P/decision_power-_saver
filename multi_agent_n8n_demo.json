@@ -1,0 +1,484 @@
+{
+  "phase_1_expert_grouping": {
+    "input": {
+      "business_goal": "Build a runnable n8n demo that receives lat/lng + natural language and returns nearby restaurants from Google Places with optional simple ranking.",
+      "constraints": [
+        "Runnable first",
+        "Low complexity",
+        "Low cost",
+        "Can remove AI if complex"
+      ]
+    },
+    "output": {
+      "experts": [
+        {
+          "role": "Backend Engineer",
+          "objective_function": "Maximize API integration reliability and request/response correctness.",
+          "chosen_technology": [
+            "n8n Webhook node",
+            "n8n HTTP Request node",
+            "Google Places API v1 places:searchText"
+          ],
+          "simplest_runnable_solution": "Receive POST JSON payload, call Google Places Text Search with locationBias, return raw place list subset."
+        },
+        {
+          "role": "Data Engineer",
+          "objective_function": "Maximize clean structured output and schema stability.",
+          "chosen_technology": [
+            "n8n Code node (JavaScript)",
+            "JSON schema-like fixed fields"
+          ],
+          "simplest_runnable_solution": "Map API response fields into stable JSON: name, address, rating, priceLevel, location, googleMapsUri."
+        },
+        {
+          "role": "Data Scientist",
+          "objective_function": "Maximize recommendation usefulness with minimal complexity.",
+          "chosen_technology": [
+            "Rule-based scoring"
+          ],
+          "simplest_runnable_solution": "Score = rating*20 - pricePenalty + queryMatchBonus; sort descending."
+        },
+        {
+          "role": "ML Engineer",
+          "objective_function": "Use AI only if free and easy to fallback.",
+          "chosen_technology": [
+            "No external AI model",
+            "Keyword-based intent extraction rules"
+          ],
+          "simplest_runnable_solution": "Skip AI. Parse cheap/nearby/spicy/noodle keywords with deterministic JS rules."
+        },
+        {
+          "role": "Product Designer",
+          "objective_function": "Minimize user effort and maximize understandable response.",
+          "chosen_technology": [
+            "Single endpoint POST /restaurant-recommend",
+            "Simple response sections: input_echo, nearby_restaurants, recommendation"
+          ],
+          "simplest_runnable_solution": "One-call experience with top 5 results and explanation string."
+        },
+        {
+          "role": "SRE / Reliability Engineer",
+          "objective_function": "Maximize success rate under API failures.",
+          "chosen_technology": [
+            "HTTP timeout",
+            "continueOnFail",
+            "Fallback mock list in Function node"
+          ],
+          "simplest_runnable_solution": "If Google Places fails or returns empty, return mock restaurants with fallback_used=true."
+        },
+        {
+          "role": "Cost Optimizer",
+          "objective_function": "Minimize recurring cost and avoid paid AI dependencies.",
+          "chosen_technology": [
+            "No AI API",
+            "Free deterministic ranking logic",
+            "FieldMask to reduce Places payload"
+          ],
+          "simplest_runnable_solution": "Disable AI entirely, use rules only, and request only required Places fields."
+        }
+      ]
+    }
+  },
+  "phase_2_tech_decision": {
+    "input": {
+      "options": [
+        "Use free model",
+        "Use no AI and rules"
+      ],
+      "cost_reliability_preference": "Prefer no-key AI dependency and predictable behavior"
+    },
+    "output": {
+      "ai_usage": false,
+      "model": "none",
+      "fallback": "Keyword rules + deterministic score; if Places fails use hardcoded mock list"
+    }
+  },
+  "phase_3_system_structure": {
+    "input": {
+      "request_schema": {
+        "lat": 31.2304,
+        "lng": 121.4737,
+        "query": "便宜点的拉面",
+        "radius": 1500
+      }
+    },
+    "output": {
+      "dataflow": [
+        "Webhook -> BuildRequest(Code) -> GooglePlaces(HTTP Request) -> TransformAndRank(Code) -> Webhook Response"
+      ],
+      "step_io": [
+        {
+          "step": "Webhook",
+          "input": {
+            "http_method": "POST",
+            "body": {
+              "lat": "number",
+              "lng": "number",
+              "query": "string",
+              "radius": "number(optional)"
+            }
+          },
+          "output": {
+            "lat": "number",
+            "lng": "number",
+            "query": "string",
+            "radius": "number(default 1500)"
+          }
+        },
+        {
+          "step": "BuildRequest(Code)",
+          "input": {
+            "lat": "number",
+            "lng": "number",
+            "query": "string",
+            "radius": "number"
+          },
+          "output": {
+            "placesRequest": {
+              "textQuery": "string",
+              "locationBias": {
+                "circle": {
+                  "center": {
+                    "latitude": "number",
+                    "longitude": "number"
+                  },
+                  "radius": "number"
+                }
+              }
+            },
+            "userContext": {
+              "original_query": "string",
+              "lat": "number",
+              "lng": "number"
+            }
+          }
+        },
+        {
+          "step": "GooglePlaces(HTTP Request)",
+          "input": {
+            "url": "https://places.googleapis.com/v1/places:searchText",
+            "headers": [
+              "X-Goog-Api-Key",
+              "X-Goog-FieldMask"
+            ],
+            "body": "placesRequest"
+          },
+          "output": {
+            "places": "array"
+          }
+        },
+        {
+          "step": "TransformAndRank(Code)",
+          "input": {
+            "places": "array",
+            "userContext": "object"
+          },
+          "output": {
+            "input_echo": "object",
+            "fallback_used": "boolean",
+            "nearby_restaurants": "array",
+            "recommendation": "object"
+          }
+        },
+        {
+          "step": "Webhook Response",
+          "input": {
+            "input_echo": "object",
+            "fallback_used": "boolean",
+            "nearby_restaurants": "array",
+            "recommendation": "object"
+          },
+          "output": {
+            "status": 200,
+            "body": "json"
+          }
+        }
+      ]
+    }
+  },
+  "phase_4_n8n_workflow_generation": {
+    "input": {
+      "requirement": "Importable workflow with Webhook, HTTP Request (Google Places), Function/Code processing"
+    },
+    "output": {
+      "workflow_json": {
+        "name": "Google Places Restaurant Demo",
+        "nodes": [
+          {
+            "parameters": {
+              "httpMethod": "POST",
+              "path": "restaurant-recommend",
+              "responseMode": "responseNode",
+              "options": {}
+            },
+            "id": "1",
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+              220,
+              300
+            ],
+            "webhookId": "restaurant-recommend-demo"
+          },
+          {
+            "parameters": {
+              "jsCode": "const body = $json.body ?? $json;\nconst lat = Number(body.lat);\nconst lng = Number(body.lng);\nconst radius = Number(body.radius ?? 1500);\nconst query = String(body.query ?? '').trim();\n\nif (!Number.isFinite(lat) || !Number.isFinite(lng) || !query) {\n  throw new Error('Invalid input: lat/lng/query are required');\n}\n\nreturn [{\n  json: {\n    userContext: { lat, lng, original_query: query, radius },\n    placesRequest: {\n      textQuery: query + ' restaurant',\n      locationBias: {\n        circle: {\n          center: { latitude: lat, longitude: lng },\n          radius\n        }\n      }\n    }\n  }\n}];"
+            },
+            "id": "2",
+            "name": "Build Request",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+              460,
+              300
+            ]
+          },
+          {
+            "parameters": {
+              "method": "POST",
+              "url": "https://places.googleapis.com/v1/places:searchText",
+              "sendHeaders": true,
+              "headerParameters": {
+                "parameters": [
+                  {
+                    "name": "X-Goog-Api-Key",
+                    "value": "YOUR_API_KEY"
+                  },
+                  {
+                    "name": "X-Goog-FieldMask",
+                    "value": "places.displayName,places.formattedAddress,places.rating,places.priceLevel,places.location,places.googleMapsUri"
+                  },
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json"
+                  }
+                ]
+              },
+              "sendBody": true,
+              "specifyBody": "json",
+              "jsonBody": "={{$json.placesRequest}}",
+              "options": {
+                "response": {
+                  "response": {
+                    "neverError": true,
+                    "responseFormat": "json"
+                  }
+                },
+                "timeout": 10000
+              }
+            },
+            "id": "3",
+            "name": "Google Places",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+              700,
+              300
+            ],
+            "continueOnFail": true
+          },
+          {
+            "parameters": {
+              "jsCode": "const upstream = $item(0).$node['Build Request'].json;\nconst userContext = upstream.userContext ?? {};\nconst query = String(userContext.original_query ?? '').toLowerCase();\n\nconst fallback = [\n  { name: 'Mock 兰州拉面', address: 'Mock Road 1', rating: 4.2, priceLevel: 'PRICE_LEVEL_INEXPENSIVE', location: { latitude: userContext.lat ?? null, longitude: userContext.lng ?? null }, googleMapsUri: null },\n  { name: 'Mock 牛肉面馆', address: 'Mock Road 2', rating: 4.0, priceLevel: 'PRICE_LEVEL_MODERATE', location: { latitude: userContext.lat ?? null, longitude: userContext.lng ?? null }, googleMapsUri: null }\n];\n\nconst places = Array.isArray($json.places) ? $json.places : [];\nconst usingFallback = places.length === 0;\n\nconst normalized = (usingFallback ? fallback : places).map((p, idx) => {\n  const name = p.displayName?.text ?? p.name ?? `unknown_${idx}`;\n  const address = p.formattedAddress ?? p.address ?? '';\n  const rating = Number(p.rating ?? 0);\n  const priceLevel = p.priceLevel ?? 'PRICE_LEVEL_UNSPECIFIED';\n  const location = p.location ?? p.location ?? {};\n  const googleMapsUri = p.googleMapsUri ?? null;\n\n  const isCheapIntent = query.includes('便宜') || query.includes('cheap');\n  const isNoodleIntent = query.includes('拉面') || query.includes('noodle');\n\n  const pricePenaltyMap = {\n    PRICE_LEVEL_VERY_EXPENSIVE: 30,\n    PRICE_LEVEL_EXPENSIVE: 20,\n    PRICE_LEVEL_MODERATE: 8,\n    PRICE_LEVEL_INEXPENSIVE: 0,\n    PRICE_LEVEL_UNSPECIFIED: 5\n  };\n\n  let score = rating * 20 - (pricePenaltyMap[priceLevel] ?? 10);\n  if (isCheapIntent && priceLevel === 'PRICE_LEVEL_INEXPENSIVE') score += 10;\n  if (isNoodleIntent && /面|拉面|noodle/i.test(name)) score += 8;\n\n  return { name, address, rating, priceLevel, location, googleMapsUri, score: Number(score.toFixed(2)) };\n});\n\nnormalized.sort((a, b) => b.score - a.score);\n\nreturn [{\n  json: {\n    input_echo: userContext,\n    fallback_used: usingFallback,\n    nearby_restaurants: normalized.slice(0, 10),\n    recommendation: normalized[0] ?? null\n  }\n}];"
+            },
+            "id": "4",
+            "name": "Transform and Rank",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+              940,
+              300
+            ]
+          },
+          {
+            "parameters": {
+              "respondWith": "json",
+              "responseBody": "={{$json}}",
+              "options": {
+                "responseCode": 200
+              }
+            },
+            "id": "5",
+            "name": "Webhook Response",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [
+              1180,
+              300
+            ]
+          }
+        ],
+        "connections": {
+          "Webhook": {
+            "main": [
+              [
+                {
+                  "node": "Build Request",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "Build Request": {
+            "main": [
+              [
+                {
+                  "node": "Google Places",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "Google Places": {
+            "main": [
+              [
+                {
+                  "node": "Transform and Rank",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "Transform and Rank": {
+            "main": [
+              [
+                {
+                  "node": "Webhook Response",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          }
+        },
+        "active": false,
+        "settings": {
+          "executionOrder": "v1"
+        },
+        "versionId": "demo-v1",
+        "meta": {
+          "templateCredsSetupCompleted": false
+        }
+      }
+    }
+  },
+  "phase_5_function_node_code": {
+    "input": {
+      "need": "Standalone code snippets for data cleaning and optional scoring"
+    },
+    "output": {
+      "data_cleaning_code": "const places = Array.isArray($json.places) ? $json.places : [];\nconst cleaned = places.map((p, idx) => ({\n  name: p.displayName?.text ?? p.name ?? `unknown_${idx}`,\n  address: p.formattedAddress ?? '',\n  rating: Number(p.rating ?? 0),\n  priceLevel: p.priceLevel ?? 'PRICE_LEVEL_UNSPECIFIED',\n  location: p.location ?? {},\n  googleMapsUri: p.googleMapsUri ?? null\n}));\n\nreturn [{ json: { cleaned } }];",
+      "scoring_code": "const query = String($json.input_echo?.original_query ?? '').toLowerCase();\nconst pricePenaltyMap = {\n  PRICE_LEVEL_VERY_EXPENSIVE: 30,\n  PRICE_LEVEL_EXPENSIVE: 20,\n  PRICE_LEVEL_MODERATE: 8,\n  PRICE_LEVEL_INEXPENSIVE: 0,\n  PRICE_LEVEL_UNSPECIFIED: 5\n};\n\nconst scored = ($json.cleaned ?? []).map((r) => {\n  const isCheapIntent = query.includes('便宜') || query.includes('cheap');\n  const isNoodleIntent = query.includes('拉面') || query.includes('noodle');\n\n  let score = Number(r.rating ?? 0) * 20 - (pricePenaltyMap[r.priceLevel] ?? 10);\n  if (isCheapIntent && r.priceLevel === 'PRICE_LEVEL_INEXPENSIVE') score += 10;\n  if (isNoodleIntent && /面|拉面|noodle/i.test(r.name)) score += 8;\n\n  return { ...r, score: Number(score.toFixed(2)) };\n}).sort((a, b) => b.score - a.score);\n\nreturn [{ json: { nearby_restaurants: scored, recommendation: scored[0] ?? null } }];"
+    }
+  },
+  "phase_6_minimum_runnable_validation": {
+    "input": {
+      "test_goal": "Validate endpoint accepts payload and returns restaurant list JSON"
+    },
+    "output": {
+      "how_to_test": {
+        "steps": [
+          "Import n8n_workflow.json into n8n",
+          "Set HTTP Request header X-Goog-Api-Key to real key if available, otherwise keep placeholder to trigger fallback",
+          "Activate workflow",
+          "Use curl POST to webhook URL"
+        ],
+        "curl_example": "curl -X POST 'http://localhost:5678/webhook/restaurant-recommend' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"lat\":31.2304,\"lng\":121.4737,\"query\":\"便宜点的拉面\",\"radius\":1200}'"
+      },
+      "sample_input": {
+        "lat": 31.2304,
+        "lng": 121.4737,
+        "query": "便宜点的拉面",
+        "radius": 1200
+      },
+      "sample_output": {
+        "input_echo": {
+          "lat": 31.2304,
+          "lng": 121.4737,
+          "original_query": "便宜点的拉面",
+          "radius": 1200
+        },
+        "fallback_used": true,
+        "nearby_restaurants": [
+          {
+            "name": "Mock 兰州拉面",
+            "address": "Mock Road 1",
+            "rating": 4.2,
+            "priceLevel": "PRICE_LEVEL_INEXPENSIVE",
+            "location": {
+              "latitude": 31.2304,
+              "longitude": 121.4737
+            },
+            "googleMapsUri": null,
+            "score": 102
+          }
+        ],
+        "recommendation": {
+          "name": "Mock 兰州拉面",
+          "address": "Mock Road 1",
+          "rating": 4.2,
+          "priceLevel": "PRICE_LEVEL_INEXPENSIVE",
+          "location": {
+            "latitude": 31.2304,
+            "longitude": 121.4737
+          },
+          "googleMapsUri": null,
+          "score": 102
+        }
+      }
+    }
+  },
+  "phase_7_critic": {
+    "input": {
+      "target": "Audit demo architecture honesty"
+    },
+    "output": {
+      "hack_points": [
+        "Fallback mock data is hardcoded and not geospatially accurate",
+        "Scoring is heuristic only, not personalized",
+        "Keyword intent parser is simplistic"
+      ],
+      "likely_failure_points": [
+        "Google API key invalid or quota exceeded",
+        "Places API response schema updates can break mapping",
+        "Webhook abuse without auth/rate limiting"
+      ],
+      "non_scalable_parts": [
+        "No persistent cache/database",
+        "Single workflow with in-memory logic only",
+        "No observability stack (metrics/tracing/alerts)",
+        "No multi-language robust NLP"
+      ]
+    }
+  },
+  "phase_8_final_convergence": {
+    "input": {
+      "goal": "Converge to one demo-ready minimal architecture"
+    },
+    "output": {
+      "system_structure_simplified": [
+        "Webhook",
+        "Build Request(Code)",
+        "Google Places HTTP Request",
+        "Transform & Rank(Code)",
+        "Webhook Response"
+      ],
+      "final_workflow_file": "/home/runner/work/decision_power-_saver/decision_power-_saver/n8n_workflow.json",
+      "ai_final_decision": {
+        "ai_usage": false,
+        "reason": "Demo priority is low-cost and runnable stability; deterministic rules are enough for recommendation ordering."
+      },
+      "why_demo_not_production": [
+        "No auth/rate-limit/security hardening",
+        "No retries/backoff/circuit breaker",
+        "No persistent storage or analytics",
+        "Rule-based ranking quality is limited",
+        "Fallback data is mock only"
+      ]
+    }
+  }
+}
