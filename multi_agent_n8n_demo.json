@@ -104,7 +104,7 @@
     },
     "output": {
       "dataflow": [
-        "Webhook -> BuildRequest(Code) -> GooglePlaces(HTTP Request) -> TransformAndRank(Code) -> Webhook Response"
+        "Webhook -> BuildRequest(Code) -> HasApiKey(IF) -> GooglePlaces(HTTP Request, optional) -> TransformAndRank(Code) -> Webhook Response"
       ],
       "step_io": [
         {
@@ -223,7 +223,7 @@
           },
           {
             "parameters": {
-              "jsCode": "const body = $json.body ?? $json;\nconst lat = Number(body.lat);\nconst lng = Number(body.lng);\nconst radius = Number(body.radius ?? 1500);\nconst query = String(body.query ?? '').trim();\n\nif (!Number.isFinite(lat) || !Number.isFinite(lng) || !query) {\n  throw new Error('Invalid input: lat/lng/query are required');\n}\n\nreturn [{\n  json: {\n    userContext: { lat, lng, original_query: query, radius },\n    placesRequest: {\n      textQuery: query + ' restaurant',\n      locationBias: {\n        circle: {\n          center: { latitude: lat, longitude: lng },\n          radius\n        }\n      }\n    }\n  }\n}];"
+              "jsCode": "const body = $json.body ?? $json;\nconst lat = Number(body.lat);\nconst lng = Number(body.lng);\nconst radius = Number(body.radius ?? 1500);\nconst query = String(body.query ?? '').trim();\nconst configuredApiKey = String($env.GOOGLE_PLACES_API_KEY ?? '').trim();\nconst hasRealApiKey = configuredApiKey.length > 0 && configuredApiKey !== 'YOUR_API_KEY';\n\nif (!Number.isFinite(lat) || !Number.isFinite(lng) || !query) {\n  throw new Error('Invalid input: lat/lng/query are required');\n}\n\nreturn [{\n  json: {\n    userContext: { lat, lng, original_query: query, radius },\n    hasRealApiKey,\n    googleApiKey: hasRealApiKey ? configuredApiKey : 'YOUR_API_KEY',\n    placesRequest: {\n      textQuery: query + ' restaurant',\n      locationBias: {\n        circle: {\n          center: { latitude: lat, longitude: lng },\n          radius\n        }\n      }\n    }\n  }\n}];"
             },
             "id": "2",
             "name": "Build Request",
@@ -236,6 +236,26 @@
           },
           {
             "parameters": {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{$json.hasRealApiKey}}",
+                    "operation": "true"
+                  }
+                ]
+              }
+            },
+            "id": "6",
+            "name": "Has Real API Key",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [
+              580,
+              300
+            ]
+          },
+          {
+            "parameters": {
               "method": "POST",
               "url": "https://places.googleapis.com/v1/places:searchText",
               "sendHeaders": true,
@@ -243,7 +263,7 @@
                 "parameters": [
                   {
                     "name": "X-Goog-Api-Key",
-                    "value": "YOUR_API_KEY"
+                    "value": "={{$json.googleApiKey}}"
                   },
                   {
                     "name": "X-Goog-FieldMask",
@@ -280,7 +300,7 @@
           },
           {
             "parameters": {
-              "jsCode": "const upstream = $item(0).$node['Build Request'].json;\nconst userContext = upstream.userContext ?? {};\nconst query = String(userContext.original_query ?? '').toLowerCase();\n\nconst fallback = [\n  { name: 'Mock 兰州拉面', address: 'Mock Road 1', rating: 4.2, priceLevel: 'PRICE_LEVEL_INEXPENSIVE', location: { latitude: userContext.lat ?? null, longitude: userContext.lng ?? null }, googleMapsUri: null },\n  { name: 'Mock 牛肉面馆', address: 'Mock Road 2', rating: 4.0, priceLevel: 'PRICE_LEVEL_MODERATE', location: { latitude: userContext.lat ?? null, longitude: userContext.lng ?? null }, googleMapsUri: null }\n];\n\nconst places = Array.isArray($json.places) ? $json.places : [];\nconst usingFallback = places.length === 0;\n\nconst normalized = (usingFallback ? fallback : places).map((p, idx) => {\n  const name = p.displayName?.text ?? p.name ?? `unknown_${idx}`;\n  const address = p.formattedAddress ?? p.address ?? '';\n  const rating = Number(p.rating ?? 0);\n  const priceLevel = p.priceLevel ?? 'PRICE_LEVEL_UNSPECIFIED';\n  const location = p.location ?? p.location ?? {};\n  const googleMapsUri = p.googleMapsUri ?? null;\n\n  const isCheapIntent = query.includes('便宜') || query.includes('cheap');\n  const isNoodleIntent = query.includes('拉面') || query.includes('noodle');\n\n  const pricePenaltyMap = {\n    PRICE_LEVEL_VERY_EXPENSIVE: 30,\n    PRICE_LEVEL_EXPENSIVE: 20,\n    PRICE_LEVEL_MODERATE: 8,\n    PRICE_LEVEL_INEXPENSIVE: 0,\n    PRICE_LEVEL_UNSPECIFIED: 5\n  };\n\n  let score = rating * 20 - (pricePenaltyMap[priceLevel] ?? 10);\n  if (isCheapIntent && priceLevel === 'PRICE_LEVEL_INEXPENSIVE') score += 10;\n  if (isNoodleIntent && /面|拉面|noodle/i.test(name)) score += 8;\n\n  return { name, address, rating, priceLevel, location, googleMapsUri, score: Number(score.toFixed(2)) };\n});\n\nnormalized.sort((a, b) => b.score - a.score);\n\nreturn [{\n  json: {\n    input_echo: userContext,\n    fallback_used: usingFallback,\n    nearby_restaurants: normalized.slice(0, 10),\n    recommendation: normalized[0] ?? null\n  }\n}];"
+              "jsCode": "const upstream = $item(0).$node['Build Request'].json;\nconst userContext = upstream.userContext ?? {};\nconst query = String(userContext.original_query ?? '').toLowerCase();\nconst apiKeyConfigured = Boolean(upstream.hasRealApiKey);\n\nconst fallback = [\n  { name: 'Mock 兰州拉面', address: 'Mock Road 1', rating: 4.2, priceLevel: 'PRICE_LEVEL_INEXPENSIVE', location: { latitude: userContext.lat ?? null, longitude: userContext.lng ?? null }, googleMapsUri: null },\n  { name: 'Mock 牛肉面馆', address: 'Mock Road 2', rating: 4.0, priceLevel: 'PRICE_LEVEL_MODERATE', location: { latitude: userContext.lat ?? null, longitude: userContext.lng ?? null }, googleMapsUri: null }\n];\n\nconst places = Array.isArray($json.places) ? $json.places : [];\nconst usingFallback = places.length === 0;\n\nconst normalized = (usingFallback ? fallback : places).map((p, idx) => {\n  const name = p.displayName?.text ?? p.name ?? `unknown_${idx}`;\n  const address = p.formattedAddress ?? p.address ?? '';\n  const rating = Number(p.rating ?? 0);\n  const priceLevel = p.priceLevel ?? 'PRICE_LEVEL_UNSPECIFIED';\n  const location = p.location ?? {};\n  const googleMapsUri = p.googleMapsUri ?? null;\n\n  const isCheapIntent = query.includes('便宜') || query.includes('cheap');\n  const isNoodleIntent = query.includes('拉面') || query.includes('noodle');\n\n  const pricePenaltyMap = {\n    PRICE_LEVEL_VERY_EXPENSIVE: 30,\n    PRICE_LEVEL_EXPENSIVE: 20,\n    PRICE_LEVEL_MODERATE: 8,\n    PRICE_LEVEL_INEXPENSIVE: 0,\n    PRICE_LEVEL_UNSPECIFIED: 5\n  };\n\n  let score = rating * 20 - (pricePenaltyMap[priceLevel] ?? 10);\n  if (isCheapIntent && priceLevel === 'PRICE_LEVEL_INEXPENSIVE') score += 10;\n  if (isNoodleIntent && /面|拉面|noodle/i.test(name)) score += 8;\n\n  return { name, address, rating, priceLevel, location, googleMapsUri, score: Number(score.toFixed(2)) };\n});\n\nnormalized.sort((a, b) => b.score - a.score);\n\nreturn [{\n  json: {\n    input_echo: userContext,\n    fallback_used: usingFallback,\n    api_key_configured: apiKeyConfigured,\n    nearby_restaurants: normalized.slice(0, 10),\n    recommendation: normalized[0] ?? null\n  }\n}];"
             },
             "id": "4",
             "name": "Transform and Rank",
@@ -325,7 +345,25 @@
             "main": [
               [
                 {
+                  "node": "Has Real API Key",
+                  "type": "main",
+                  "index": 0
+                }
+              ]
+            ]
+          },
+          "Has Real API Key": {
+            "main": [
+              [
+                {
                   "node": "Google Places",
+                  "type": "main",
+                  "index": 0
+                }
+              ],
+              [
+                {
+                  "node": "Transform and Rank",
                   "type": "main",
                   "index": 0
                 }
@@ -383,7 +421,7 @@
       "how_to_test": {
         "steps": [
           "Import n8n_workflow.json into n8n",
-          "Set HTTP Request header X-Goog-Api-Key to real key if available, otherwise keep placeholder to trigger fallback",
+          "Set env GOOGLE_PLACES_API_KEY in n8n (optional); without key the IF node skips Google call and uses fallback mock data",
           "Activate workflow",
           "Use curl POST to webhook URL"
         ],
@@ -428,7 +466,8 @@
           },
           "googleMapsUri": null,
           "score": 102
-        }
+        },
+        "api_key_configured": false
       }
     }
   },
@@ -463,11 +502,12 @@
       "system_structure_simplified": [
         "Webhook",
         "Build Request(Code)",
-        "Google Places HTTP Request",
+        "Has Real API Key(IF)",
+        "Google Places HTTP Request (only when key exists)",
         "Transform & Rank(Code)",
         "Webhook Response"
       ],
-      "final_workflow_file": "/home/runner/work/decision_power-_saver/decision_power-_saver/n8n_workflow.json",
+      "final_workflow_file": "n8n_workflow.json",
       "ai_final_decision": {
         "ai_usage": false,
         "reason": "Demo priority is low-cost and runnable stability; deterministic rules are enough for recommendation ordering."
