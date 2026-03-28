@@ -1,0 +1,243 @@
+{
+  "name": "Stateless AI Food Router",
+  "nodes": [
+    {
+      "parameters": {
+        "event": "messageCreate",
+        "additionalFields": {
+          "text": "/decide"
+        }
+      },
+      "id": "1",
+      "name": "Discord Trigger",
+      "type": "n8n-nodes-base.discordTrigger",
+      "typeVersion": 1,
+      "position": [
+        -300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "chat",
+        "model": "gpt-4o-mini",
+        "messages": [
+          {
+            "text": "You are a concise food decision assistant. Extract the intent from the user message. Respond ONLY with strict JSON of the shape {\"action\":\"eat_out\"|\"cook\",\"preferences\":\"string\"}.",
+            "role": "system"
+          },
+          {
+            "text": "User input: ={{ $json.body?.data?.options?.[0]?.value || $json.content || $json.message || '' }}",
+            "role": "user"
+          }
+        ],
+        "options": {
+          "responseFormat": "json_object",
+          "temperature": 0.2
+        }
+      },
+      "id": "2",
+      "name": "OpenAI (Chat)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": [
+          {
+            "value1": "={{ $json.action }}",
+            "operation": "equal",
+            "value2": "eat_out"
+          },
+          {
+            "value1": "={{ $json.action }}",
+            "operation": "equal",
+            "value2": "cook"
+          }
+        ]
+      },
+      "id": "3",
+      "name": "Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [
+        180,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "none",
+        "url": "https://api.example.com/restaurants",
+        "method": "GET",
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "preferences",
+              "value": "={{ $json.preferences }}"
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "Restaurant API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        420,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "none",
+        "url": "https://api.edamam.com/search",
+        "method": "GET",
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "q",
+              "value": "={{ $json.preferences }}"
+            }
+          ]
+        }
+      },
+      "id": "5",
+      "name": "Recipe API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        420,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "language": "JavaScript",
+        "jsCode": "const payload = items[0]?.json ?? {};\nconst source = payload.data ?? payload;\nconst list = source.results || source.hits || source.recipes || source.items;\nconst pick = Array.isArray(list) && list.length ? list[0] : source;\nconst toText = (value) => {\n  if (typeof value === 'string') return value;\n  if (value === undefined || value === null) return '';\n  return JSON.stringify(value).slice(0, 200);\n};\nconst normalized = {\n  title: pick.title || pick.name || 'Suggested option',\n  imageUrl: pick.image || pick.imageUrl || pick.photo || '',\n  link: pick.url || pick.link || pick.source || '',\n  description: pick.description || pick.summary || toText(pick)\n};\nreturn [{ json: normalized }];"
+      },
+      "id": "6",
+      "name": "Format Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "create",
+        "channelId": "={{ $json.channel_id || $json.channelId || '' }}",
+        "message": "Here\u2019s a food suggestion for you!",
+        "additionalFields": {
+          "embeds": [
+            {
+              "title": "={{ $json.title }}",
+              "description": "={{ $json.description }}",
+              "url": "={{ $json.link }}",
+              "image": {
+                "url": "={{ $json.imageUrl }}",
+                "height": 0,
+                "width": 0
+              }
+            }
+          ]
+        }
+      },
+      "id": "7",
+      "name": "Discord Response",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [
+        900,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Discord Trigger": {
+      "main": [
+        [
+          {
+            "node": "OpenAI (Chat)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI (Chat)": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Restaurant API",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Recipe API",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Restaurant API": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recipe API": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Result": {
+      "main": [
+        [
+          {
+            "node": "Discord Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "stateless-ai-food-router",
+  "id": "stateless-ai-food-router",
+  "pinData": {},
+  "tags": []
+}
