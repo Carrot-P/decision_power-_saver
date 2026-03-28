@@ -65,7 +65,7 @@
             },
             {
               "name": "q",
-              "value": "={{(() => { if ($json.__prefs) return $json.__prefs.ingredients || ''; if ($json.ingredients || $json.cuisine_preference || $json.max_time_minutes) { $json.__prefs = { ingredients: $json.ingredients || '', cuisine_preference: $json.cuisine_preference || 'any', max_time_minutes: $json.max_time_minutes || '' }; return $json.__prefs.ingredients; } const msg = $json?.choices?.[0]?.message?.content?.[0]?.text ?? $json?.data?.[0]?.content?.[0]?.text ?? $json?.text ?? $json?.message ?? ''; let parsed = {}; try { parsed = typeof msg === 'string' && msg.trim() ? JSON.parse(msg) : (typeof msg === 'object' && msg !== null ? msg : {}); } catch (error) { parsed = { parse_error: error.message }; } $json.__prefs = { ...parsed, ingredients: parsed.ingredients || '', cuisine_preference: parsed.cuisine_preference || 'any', max_time_minutes: parsed.max_time_minutes || '' }; return $json.__prefs.ingredients; })()}}"
+              "value": "={{(() => { if ($json.__prefs) return $json.__prefs.ingredients || ''; if ($json.ingredients || $json.cuisine_preference || $json.max_time_minutes) { const directMax = Number($json.max_time_minutes); $json.__prefs = { ingredients: $json.ingredients || '', cuisine_preference: $json.cuisine_preference || 'any', max_time_minutes: Number.isFinite(directMax) ? directMax : '' }; return $json.__prefs.ingredients; } const msg = $json?.choices?.[0]?.message?.content?.[0]?.text ?? $json?.data?.[0]?.content?.[0]?.text ?? $json?.text ?? $json?.message ?? ''; let parsed = {}; try { parsed = typeof msg === 'string' && msg.trim() ? JSON.parse(msg) : (typeof msg === 'object' && msg !== null ? msg : {}); } catch (error) { parsed = { parse_error: error.message }; } const parsedMax = Number(parsed.max_time_minutes); $json.__prefs = { ...parsed, ingredients: parsed.ingredients || '', cuisine_preference: parsed.cuisine_preference || 'any', max_time_minutes: Number.isFinite(parsedMax) ? parsedMax : '' }; return $json.__prefs.ingredients; })()}}"
             },
             {
               "name": "cuisineType",
@@ -99,7 +99,7 @@
     {
       "parameters": {
         "language": "javascript",
-        "jsCode": "const itemsIn = Array.isArray(items) ? items : [];\nconst first = (itemsIn[0] || {}).json || {};\nconst hits = Array.isArray(first.hits) ? first.hits : [];\nif (!hits.length || !hits[0].recipe) {\n  return [{ json: { title: 'No recipe found', imageUrl: '', recipeUrl: '', calories: 0, ingredientCount: 0 } }];\n}\nconst recipe = hits[0].recipe;\nreturn [{\n  json: {\n    title: recipe.label || 'Recipe',\n    imageUrl: recipe.image || '',\n    recipeUrl: recipe.url || '',\n    calories: Math.round(recipe.calories || 0),\n    ingredientCount: Array.isArray(recipe.ingredientLines) ? recipe.ingredientLines.length : 0\n  }\n}];"
+        "jsCode": "// Format the first recipe result coming from Edamam\nconst itemsIn = Array.isArray(items) ? items : [];\nconst first = (itemsIn[0] || {}).json || {};\nconst hits = Array.isArray(first.hits) ? first.hits : [];\nif (!hits.length || !hits[0].recipe) {\n  return [{\n    json: {\n      title: 'Unable to find a recipe',\n      imageUrl: '',\n      recipeUrl: '',\n      calories: 0,\n      ingredientCount: 0,\n      note: 'I could not parse enough details. Please try /cook with ingredients, cuisine, and optional max time.'\n    }\n  }];\n}\nconst recipe = hits[0].recipe;\nreturn [{\n  json: {\n    title: recipe.label || 'Recipe',\n    imageUrl: recipe.image || '',\n    recipeUrl: recipe.url || '',\n    calories: Math.round(recipe.calories || 0),\n    ingredientCount: Array.isArray(recipe.ingredientLines) ? recipe.ingredientLines.length : 0\n  }\n}];"
       },
       "id": "4",
       "name": "Format Top Result",
@@ -115,13 +115,13 @@
         "resource": "message",
         "operation": "send",
         "channelId": "REPLACE_WITH_DISCORD_CHANNEL_ID",
-        "text": "={{`🍽️ Recipe: ${$json.title}`}}",
+        "text": "={{$json.note ? `⚠️ ${$json.note}` : `🍽️ Recipe: ${$json.title}`}}",
         "additionalFields": {
           "embeds": [
             {
               "title": "={{$json[\"title\"]}}",
               "url": "={{$json[\"recipeUrl\"]}}",
-              "description": "={{`Calories: ${$json.calories} | Ingredients: ${$json.ingredientCount}`}}",
+              "description": "={{$json.note || `Calories: ${$json.calories} | Ingredients: ${$json.ingredientCount}`}}",
               "thumbnail": {
                 "url": "={{$json[\"imageUrl\"]}}"
               },
