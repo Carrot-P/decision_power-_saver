@@ -27,7 +27,7 @@
         "chatMessages": {
           "message": [
             {
-              "text": "You are a culinary extraction assistant. Given a Discord message that may look like a /cook command or casual request, extract a concise comma-separated list of ingredients, a cuisine preference if mentioned, and a maximum cooking time in minutes if present. Always respond as compact JSON: {\"ingredients\": \"string\", \"cuisine_preference\": \"string\", \"max_time_minutes\": \"number or null when unknown\"}. Use \"any\" when a field is unspecified.",
+              "text": "You are a culinary extraction assistant. Given a Discord message that may look like a /cook command or casual request, extract a concise comma-separated list of ingredients, a cuisine preference if mentioned, and a maximum cooking time in minutes if present. Always respond as compact JSON: {\"ingredients\": \"string\", \"cuisine_preference\": \"string\", \"max_time_minutes\": \"number or null when unknown\"}. Use \"any\" only for string fields that are unspecified; leave max_time_minutes as null when unknown.",
               "type": "system"
             },
             {
@@ -54,6 +54,20 @@
     },
     {
       "parameters": {
+        "language": "javascript",
+        "jsCode": "// Normalize OpenAI response into flat preference fields\nconst item = items[0] || { json: {} };\nconst source = item.json || {};\nconst rawMessage = source?.choices?.[0]?.message?.content?.[0]?.text\n  ?? source?.data?.[0]?.content?.[0]?.text\n  ?? source?.text\n  ?? source?.message\n  ?? source;\n\nlet parsed = {};\nlet parseError = '';\n\ntry {\n  parsed = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : (rawMessage || {});\n} catch (error) {\n  parseError = error.message;\n}\n\nconst maxTime = Number(parsed.max_time_minutes);\n\nreturn [{\n  json: {\n    ingredients: parsed.ingredients || '',\n    cuisine_preference: parsed.cuisine_preference || 'any',\n    max_time_minutes: Number.isFinite(maxTime) ? maxTime : null,\n    parse_error: parseError\n  }\n}];"
+      },
+      "id": "6",
+      "name": "Normalize Preferences",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        0
+      ]
+    },
+    {
+      "parameters": {
         "authentication": "none",
         "requestMethod": "GET",
         "url": "https://api.edamam.com/api/recipes/v2",
@@ -65,15 +79,15 @@
             },
             {
               "name": "q",
-              "value": "={{(() => {\n  if ($json.__prefs) return $json.__prefs.ingredients || '';\n\n  const buildPrefs = () => {\n    if ($json.ingredients || $json.cuisine_preference || $json.max_time_minutes) {\n      const directMax = Number($json.max_time_minutes);\n      return {\n        ingredients: $json.ingredients || '',\n        cuisine_preference: $json.cuisine_preference || 'any',\n        max_time_minutes: Number.isFinite(directMax) ? directMax : null,\n        parse_error: ''\n      };\n    }\n\n    const msg = $json?.choices?.[0]?.message?.content?.[0]?.text ?? $json?.data?.[0]?.content?.[0]?.text ?? $json?.text ?? $json?.message ?? '';\n    let parsed = {};\n\n    try {\n      parsed = typeof msg === 'string' && msg.trim()\n        ? JSON.parse(msg)\n        : (typeof msg === 'object' && msg !== null ? msg : {});\n    } catch (error) {\n      parsed = { parse_error: error.message };\n    }\n\n    const parsedMax = Number(parsed.max_time_minutes);\n\n    return {\n      ingredients: parsed.ingredients || '',\n      cuisine_preference: parsed.cuisine_preference || 'any',\n      max_time_minutes: Number.isFinite(parsedMax) ? parsedMax : null,\n      parse_error: parsed.parse_error || ''\n    };\n  };\n\n  $json.__prefs = buildPrefs();\n  return $json.__prefs.ingredients;\n})()}}"
+              "value": "={{$json[\"ingredients\"]}}"
             },
             {
               "name": "cuisineType",
-              "value": "={{$json.__prefs?.cuisine_preference || 'any'}}"
+              "value": "={{$json[\"cuisine_preference\"]}}"
             },
             {
               "name": "time",
-              "value": "={{$json.__prefs?.max_time_minutes ?? ''}}"
+              "value": "={{$json[\"max_time_minutes\"] ?? ''}}"
             },
             {
               "name": "app_id",
@@ -115,7 +129,7 @@
         "resource": "message",
         "operation": "send",
         "channelId": "REPLACE_WITH_DISCORD_CHANNEL_ID",
-        "text": "={{$json.note || ''}}",
+        "text": "={{$json.note || 'Here is your recipe!'}}",
         "additionalFields": {
           "embeds": [
             {
@@ -164,6 +178,17 @@
       ]
     },
     "OpenAI Extract Preferences": {
+      "main": [
+        [
+          {
+            "node": "Normalize Preferences",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Preferences": {
       "main": [
         [
           {
