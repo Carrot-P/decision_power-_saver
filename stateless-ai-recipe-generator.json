@@ -65,15 +65,15 @@
             },
             {
               "name": "q",
-              "value": "={{(() => { const direct = $json[\"ingredients\"]; if (direct) return direct; const msg = $json?.choices?.[0]?.message?.content?.[0]?.text ?? $json?.data?.[0]?.content?.[0]?.text ?? $json?.text ?? $json?.message ?? ''; if (typeof msg === 'string') { try { const parsed = JSON.parse(msg); return parsed.ingredients || ''; } catch (error) {} } return ''; })()}}"
+              "value": "={{(() => { if ($json.__prefs) return $json.__prefs.ingredients || ''; if ($json.ingredients || $json.cuisine_preference || $json.max_time_minutes) { $json.__prefs = { ingredients: $json.ingredients || '', cuisine_preference: $json.cuisine_preference || 'any', max_time_minutes: $json.max_time_minutes || '' }; return $json.__prefs.ingredients; } const msg = $json?.choices?.[0]?.message?.content?.[0]?.text ?? $json?.data?.[0]?.content?.[0]?.text ?? $json?.text ?? $json?.message ?? ''; let parsed = {}; try { parsed = typeof msg === 'string' && msg.trim() ? JSON.parse(msg) : (typeof msg === 'object' && msg !== null ? msg : {}); } catch (error) { parsed = { parse_error: error.message }; } $json.__prefs = { ...parsed, ingredients: parsed.ingredients || '', cuisine_preference: parsed.cuisine_preference || 'any', max_time_minutes: parsed.max_time_minutes || '' }; return $json.__prefs.ingredients; })()}}"
             },
             {
               "name": "cuisineType",
-              "value": "={{(() => { const direct = $json[\"cuisine_preference\"]; if (direct) return direct; const msg = $json?.choices?.[0]?.message?.content?.[0]?.text ?? $json?.data?.[0]?.content?.[0]?.text ?? $json?.text ?? $json?.message ?? ''; if (typeof msg === 'string') { try { const parsed = JSON.parse(msg); return parsed.cuisine_preference || 'any'; } catch (error) {} } return 'any'; })()}}"
+              "value": "={{$json.__prefs?.cuisine_preference || 'any'}}"
             },
             {
               "name": "time",
-              "value": "={{(() => { const direct = $json[\"max_time_minutes\"]; if (direct) return direct; const msg = $json?.choices?.[0]?.message?.content?.[0]?.text ?? $json?.data?.[0]?.content?.[0]?.text ?? $json?.text ?? $json?.message ?? ''; if (typeof msg === 'string') { try { const parsed = JSON.parse(msg); return parsed.max_time_minutes || ''; } catch (error) {} } return ''; })()}}"
+              "value": "={{$json.__prefs?.max_time_minutes || ''}}"
             },
             {
               "name": "app_id",
