@@ -1,0 +1,218 @@
+{
+  "name": "Google Places Restaurant Demo",
+  "nodes": [
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "guildId": {
+          "__rl": true,
+          "value": "1261568184947966012",
+          "mode": "list",
+          "cachedResultName": "Ain-soph Aur",
+          "cachedResultUrl": "https://discord.com/channels/1261568184947966012"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "1487320699193397378",
+          "mode": "list",
+          "cachedResultName": "bot",
+          "cachedResultUrl": "https://discord.com/channels/1261568184947966012/1487320699193397378"
+        },
+        "limit": 1,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        -1792,
+        80
+      ],
+      "id": "84c65bc8-9aef-45f4-8b6e-7d106b4f7dd4",
+      "name": "Get many messages",
+      "webhookId": "f38b96e9-f883-4202-8a00-b84051d508a2",
+      "credentials": {
+        "discordBotApi": {
+          "id": "y4aYdHxb77KJhXSC",
+          "name": "Discord Bot account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2016,
+        80
+      ],
+      "id": "7a5f6522-ff8f-4dbc-8815-ccb4f989fa5a",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "1261568184947966012",
+          "mode": "list",
+          "cachedResultName": "Ain-soph Aur",
+          "cachedResultUrl": "https://discord.com/channels/1261568184947966012"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "1487320699193397378",
+          "mode": "list",
+          "cachedResultName": "bot",
+          "cachedResultUrl": "https://discord.com/channels/1261568184947966012/1487320699193397378"
+        },
+        "content": "=Recommended: {{$json.name}}\n\n{{$json.reason}}\n\nNavigate:\n{{$json.maps_url}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        -1760,
+        560
+      ],
+      "id": "72ce30a3-76cd-406f-986e-6f275dd45d28",
+      "name": "Send a message",
+      "webhookId": "cda42482-93a8-4199-89cb-1d7c55303976",
+      "credentials": {
+        "discordBotApi": {
+          "id": "y4aYdHxb77KJhXSC",
+          "name": "Discord Bot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = items[0].json.content;\n\n// 示例：!food 35.68 139.76 1000 ramen\nconst parts = msg.split(\" \");\n\nreturn [{\n  json: {\n    lat: parts[1],\n    lng: parts[2],\n    radius: parts[3],\n    query: parts.slice(4).join(\" \")\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2000,
+        320
+      ],
+      "id": "305ef7c0-ef82-4cd3-aaab-f0a1b73a5ba2",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a restaurant recommendation assistant.\n\nUser location:\nLatitude: {{$json.lat}}\nLongitude: {{$json.lng}}\nSearch radius: {{$json.radius}} meters\n\nUser preference:\n{{$json.query}}\n\nTask:\n- Generate ONE restaurant recommendation.\n- The restaurant does NOT need to be real, but it must sound realistic.\n- Focus on \"good value for money\" (high rating feeling, reasonable price, popular).\n- The style should feel like a local recommendation.\n\nOutput requirements:\n- You MUST return valid JSON only.\n- Do NOT include any explanation outside JSON.\n- Keep the reason short (1–2 sentences).\n\nOutput format:\n\n{\n  \"name\": \"Restaurant name\",\n  \"reason\": \"Why this place is good value\",\n  \"query\": \"search keywords for Google Maps\"\n}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        -1824,
+        320
+      ],
+      "id": "099041e0-816f-4c2c-887c-909378d32be8",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "aAldnCuIxgKZV7vP",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = items[0].json.content.parts[0].text;\n\n// 1. 去掉 markdown code block\nconst cleaned = raw\n  .replace(/```json/g, '')\n  .replace(/```/g, '')\n  .trim();\n\n// 2. 解析 JSON\nlet data;\n\ntry {\n  data = JSON.parse(cleaned);\n} catch (e) {\n  // fallback（防止AI乱输出）\n  return [{\n    json: {\n      name: \"Unknown\",\n      reason: cleaned,\n      query: \"restaurant\"\n    }\n  }];\n}\n\n// 3. 拼 Google Maps URL\nconst lat = $json.lat;\nconst lng = $json.lng;\n\nconst maps_url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(data.query)}+${lat},${lng}`;\n\nreturn [{\n  json: {\n    name: data.name,\n    reason: data.reason,\n    maps_url\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2000,
+        560
+      ],
+      "id": "dbaec35d-6e6e-42fa-b2eb-3c57daa852ef",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "a8115e3b-9e25-4908-86dc-0d31e1073aae",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "09fd4bac26c9c7d16b96b3f5213ce4fe265ce7c202e75d779a987827804272f5"
+  },
+  "id": "oHVvVXDK9nzCtH2h",
+  "tags": []
+}
