@@ -1,0 +1,146 @@
+{
+  "name": "Stateless AI Recipe Generator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c3ba037d-dc3b-4f2b-8753-5c1a4306d758",
+      "name": "OpenAI Extract Preferences",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "language": "javascript"
+      },
+      "id": "cc634c07-e017-4cf4-b57c-0bcc3d4518d3",
+      "name": "Normalize Preferences",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.edamam.com/api/recipes/v2",
+        "options": {},
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "type",
+              "value": "public"
+            },
+            {
+              "name": "q",
+              "value": "={{$json[\"ingredients\"]}}"
+            },
+            {
+              "name": "cuisineType",
+              "value": "={{$json[\"cuisine_preference\"]}}"
+            },
+            {
+              "name": "time",
+              "value": "={{$json[\"max_time_minutes\"] ?? ''}}"
+            },
+            {
+              "name": "app_id",
+              "value": "REPLACE_WITH_EDAMAM_APP_ID"
+            },
+            {
+              "name": "app_key",
+              "value": "REPLACE_WITH_EDAMAM_APP_KEY"
+            }
+          ]
+        }
+      },
+      "id": "621dd1ea-9272-47c6-8d4d-07ad7af2342f",
+      "name": "Fetch Recipe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        880,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "language": "javascript"
+      },
+      "id": "f3a0fd42-5069-49da-b7cd-0ccd0a23c170",
+      "name": "Format Top Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "text": "={{$json.note || 'Here is your recipe!'}}",
+        "options": {}
+      },
+      "id": "a35825b0-6fd8-4d32-b00c-6421d5d3a179",
+      "name": "Send Discord Reply",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [
+        1504,
+        -144
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Normalize Preferences": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recipe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Recipe": {
+      "main": [
+        [
+          {
+            "node": "Format Top Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Top Result": {
+      "main": [
+        [
+          {
+            "node": "Send Discord Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "949ac8a9-83ad-46fd-9102-f30fb76222ba",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7bd41b16ec224f63b4783b581b4a5263b23bcd209f5db0a6a00afed2862fd60f"
+  },
+  "id": "e6nsVaL6N9ZqvDzS",
+  "tags": []
+}
