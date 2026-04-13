@@ -1,0 +1,271 @@
+{
+  "name": "Stateful Database-Driven Recipe Router",
+  "nodes": [
+    {
+      "parameters": {
+        "events": [
+          "INTERACTION_CREATE"
+        ],
+        "channelIds": [
+          "REPLACE_WITH_DISCORD_CHANNEL_ID"
+        ]
+      },
+      "id": "1",
+      "name": "Discord Trigger",
+      "type": "n8n-nodes-base.discordTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "select",
+        "schema": "public",
+        "table": "user_profiles",
+        "columns": [
+          "discord_id",
+          "taste_preference",
+          "cooking_preference"
+        ],
+        "filters": [
+          {
+            "key": "discord_id",
+            "operation": "equal",
+            "value": "={{$item(0, \"Discord Trigger\").json.user?.id || $item(0, \"Discord Trigger\").json.author?.id || $item(0, \"Discord Trigger\").json.member?.user?.id || ''}}"
+          }
+        ]
+      },
+      "id": "2",
+      "name": "Supabase Read Profile",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "operation": "chat",
+        "model": "gpt-4o-mini",
+        "chatMessages": {
+          "message": [
+            {
+              "text": "You are a culinary assistant. Given a Discord request and stored user preferences, extract the single best main ingredient to cook. Respond ONLY with compact JSON: {\"main_ingredient\": \"string\"}.",
+              "type": "system"
+            },
+            {
+              "text": "User preferences from DB: taste_preference = {{ (($json?.data && Array.isArray($json.data) && $json.data[0]?.taste_preference) ? $json.data[0].taste_preference : ($json.taste_preference || 'none')) }}, cooking_preference = {{ (($json?.data && Array.isArray($json.data) && $json.data[0]?.cooking_preference) ? $json.data[0].cooking_preference : ($json.cooking_preference || 'none')) }}. User message: {{$item(0, \"Discord Trigger\").json.content || $item(0, \"Discord Trigger\").json.message || $item(0, \"Discord Trigger\").json.data?.options?.[0]?.value || ''}}",
+              "type": "user"
+            }
+          ]
+        },
+        "responseFormat": "json_object",
+        "options": {
+          "temperature": 0,
+          "presencePenalty": 0,
+          "frequencyPenalty": 0
+        }
+      },
+      "id": "3",
+      "name": "OpenAI Pick Ingredient",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "none",
+        "requestMethod": "GET",
+        "url": "https://www.themealdb.com/api/json/v1/1/filter.php",
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "i",
+              "value": "={{$json[\"main_ingredient\"] || $json?.choices?.[0]?.message?.content?.[0]?.text || ''}}"
+            }
+          ]
+        },
+        "responseFormat": "json"
+      },
+      "id": "4",
+      "name": "Fetch Meal by Ingredient",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        -280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "language": "javascript",
+        "jsCode": "// Extract first meal result\nconst data = (items[0] || {}).json || {};\nconst meals = Array.isArray(data.meals) ? data.meals : [];\nif (!meals.length) {\n  return [{\n    json: {\n      title: 'No meals found',\n      imageUrl: '',\n      mealId: '',\n      note: 'No meals matched that ingredient. Try another request.'\n    }\n  }];\n}\nconst meal = meals[0];\nreturn [{\n  json: {\n    title: meal.strMeal || 'Meal',\n    imageUrl: meal.strMealThumb || '',\n    mealId: meal.idMeal || '',\n    main_ingredient: $item(0, 'OpenAI Pick Ingredient').json.main_ingredient || '',\n    discord_id: $item(0, 'Discord Trigger').json.user?.id || $item(0, 'Discord Trigger').json.author?.id || $item(0, 'Discord Trigger').json.member?.user?.id || ''\n  }\n}];"
+      },
+      "id": "5",
+      "name": "Format Meal Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "upsert",
+        "schema": "public",
+        "table": "food_history",
+        "columns": [
+          {
+            "column": "discord_id",
+            "value": "={{$json.discord_id || $item(0, \"Discord Trigger\").json.user?.id || $item(0, \"Discord Trigger\").json.author?.id || ''}}"
+          },
+          {
+            "column": "type",
+            "value": "cooked"
+          },
+          {
+            "column": "meal_name",
+            "value": "={{$json.title}}"
+          },
+          {
+            "column": "meal_id",
+            "value": "={{$json.mealId}}"
+          },
+          {
+            "column": "main_ingredient",
+            "value": "={{$json.main_ingredient || ''}}"
+          }
+        ]
+      },
+      "id": "6",
+      "name": "Supabase Log Meal",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "channelId": "REPLACE_WITH_DISCORD_CHANNEL_ID",
+        "text": "={{$json.note || 'Here is a meal for you!'}}",
+        "additionalFields": {
+          "embeds": [
+            {
+              "title": "={{$json[\"title\"]}}",
+              "url": "={{$json.mealId ? `https://www.themealdb.com/meal/${$json.mealId}` : ''}}",
+              "description": "={{$json.note || `Main ingredient: ${$json.main_ingredient || 'unknown'}`}}",
+              "thumbnail": {
+                "url": "={{$json[\"imageUrl\"]}}"
+              },
+              "fields": [
+                {
+                  "name": "Meal ID",
+                  "value": "={{$json[\"mealId\"] || 'n/a'}}",
+                  "inline": true
+                },
+                {
+                  "name": "Main Ingredient",
+                  "value": "={{$json[\"main_ingredient\"] || 'n/a'}}",
+                  "inline": true
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "id": "7",
+      "name": "Send Discord Reply",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [
+        560,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Discord Trigger": {
+      "main": [
+        [
+          {
+            "node": "Supabase Read Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Read Profile": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Pick Ingredient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Pick Ingredient": {
+      "main": [
+        [
+          {
+            "node": "Fetch Meal by Ingredient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Meal by Ingredient": {
+      "main": [
+        [
+          {
+            "node": "Format Meal Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Meal Result": {
+      "main": [
+        [
+          {
+            "node": "Supabase Log Meal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Log Meal": {
+      "main": [
+        [
+          {
+            "node": "Send Discord Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "pinData": {},
+  "version": 2
+}
